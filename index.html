@@ -9,6 +9,7 @@
 @media(prefers-color-scheme:dark){:root{--bg:#0d1a1c;--card:#14272a;--ink:#e3eeed;--mute:#8fa8aa;--line:#264144;--water:#5fb4bd;--float:#e09a50;--bar:#2c5a60}}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
+button:disabled{opacity:.5;cursor:default}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
 header{padding:28px 20px 8px;max-width:1100px;margin:0 auto}
 h1{font:700 2rem/1.1 Georgia,'Times New Roman',serif;margin:0}
@@ -70,8 +71,8 @@ button.main{background:var(--water);border-color:var(--water);color:#fff;font-we
         <label class="full c">Fisch<input id="fisch" list="dlFisch" placeholder="z. B. Hecht" required></label>
         <label class="c">Länge (cm)<input type="number" id="laenge" min="1" max="300" step="0.5" required></label>
         <label class="c">Gewicht (kg)<input type="number" id="gewicht" min="0" step="0.01"></label>
-        <label class="full">Köder<input id="koeder" list="dlKoeder" placeholder="z. B. Made, Wobbler, Gummifisch"></label>
-        <label>Gewässer<input id="gewaesser" list="dlGew"></label>
+        <label class="full">Köder<select id="koeder"></select><input id="koederNeu" placeholder="Neuer Köder" hidden></label>
+        <label>Gewässer<select id="gewaesser"></select><input id="gewaesserNeu" placeholder="Neues Gewässer" hidden></label>
         <label>Methode
           <select id="methode"><option value="">–</option><option>Pose</option><option>Grund</option><option>Spinnfischen</option><option>Sonstige</option></select>
         </label>
@@ -87,7 +88,7 @@ button.main{background:var(--water);border-color:var(--water);color:#fff;font-we
         <button type="button" id="cancelBtn" hidden>Abbrechen</button>
       </div>
     </form>
-    <datalist id="dlFisch"></datalist><datalist id="dlKoeder"></datalist><datalist id="dlGew"></datalist>
+    <datalist id="dlFisch"></datalist>
     <h3>Daten sichern</h3>
     <p style="font-size:.85rem;color:var(--mute);margin:0 0 8px">Die Einträge liegen nur in diesem Browser. Sichere sie regelmäßig als Datei.</p>
     <div class="row" style="margin-top:0">
@@ -100,7 +101,7 @@ button.main{background:var(--water);border-color:var(--water);color:#fff;font-we
 
   <div style="display:grid;gap:20px;min-width:0">
     <section>
-      <h2>Statistik</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px"><h2 style="margin:0">Statistik</h2><button type="button" id="pdfBtn">Als PDF</button></div>
       <div id="stats"></div>
     </section>
     <section>
@@ -111,10 +112,13 @@ button.main{background:var(--water);border-color:var(--water);color:#fff;font-we
 </main>
 <div id="toast" role="status"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 const KEY='fangtagebuch.v1';
 const FISCHE=['Rotauge','Brasse','Karpfen','Hecht','Barsch','Zander','Aal','Schleie','Hering','Flunder','Dorsch','Forelle'];
-const KOEDER=['Made','Wurm','Mais','Boilie','Brot','Gummifisch','Wobbler','Spinner','Blinker'];
+const KOEDER=['Chatterbait','Gummi','Wobbler','Wurm','Brot','Made'];
+const GEWAESSER=['Barsch-Spot','alter Fähranleger','maroder Steg','neuer Fähranleger'];
+const NEU='__neu';
 const $=id=>document.getElementById(id);
 let data=load(), editId=null;
 
@@ -130,40 +134,53 @@ function dDE(s){const[y,m,d]=s.split('-');return `${d}.${m}.${y}`}
 function setMode(){
   const k=$('kein').checked;
   document.querySelectorAll('.c').forEach(x=>x.hidden=k);
-  ['fisch','laenge','koeder'].forEach(id=>$(id).required=!k);
+  ['fisch','laenge'].forEach(id=>$(id).required=!k);
   $('formTitle').textContent=editId?'Eintrag bearbeiten':(k?'Angeltag ohne Fang':'Neuer Fang');
   $('saveBtn').textContent=editId?'Änderung speichern':(k?'Tag speichern':'Fang speichern');
 }
 function resetForm(){
-  $('f').reset(); editId=null;
+  $('f').reset(); editId=null; opts(); setSel('koeder','');
   $('datum').value=today(); $('zeit').value=now(); $('frei').checked=true;
   $('cancelBtn').hidden=true; setMode();
-  const last=sorted()[0]; if(last) $('gewaesser').value=last.gewaesser||'';
+  const last=sorted()[0]; setSel('gewaesser',last?last.gewaesser:'');
+}
+function getSel(id){const x=$(id);return x.value===NEU?$(id+'Neu').value.trim():x.value}
+function setSel(id,v){
+  const x=$(id),n=$(id+'Neu');
+  if(v&&![...x.options].some(o=>o.value===v)){x.value=NEU;n.value=v}else{x.value=v||'';n.value=''}
+  n.hidden=x.value!==NEU;
+}
+function fillSel(id,base,key,empty){
+  const cur=getSel(id);
+  const list=[...new Set([...base,...data.map(e=>e[key]).filter(Boolean)])];
+  $(id).innerHTML=`<option value="">${empty}</option>`+list.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('')+`<option value="${NEU}">＋ Neu eintragen …</option>`;
+  setSel(id,cur);
 }
 function opts(){
-  const uniq=(base,key)=>[...new Set([...base,...data.map(e=>e[key]).filter(Boolean)])];
-  const fill=(id,arr)=>$(id).innerHTML=arr.map(v=>`<option value="${esc(v)}">`).join('');
-  fill('dlFisch',uniq(FISCHE,'fisch'));fill('dlKoeder',uniq(KOEDER,'koeder'));fill('dlGew',uniq(['Warnow'],'gewaesser'));
+  $('dlFisch').innerHTML=[...new Set([...FISCHE,...data.map(e=>e.fisch).filter(Boolean)])].map(v=>`<option value="${esc(v)}">`).join('');
+  fillSel('koeder',KOEDER,'koeder','– Köder wählen –');
+  fillSel('gewaesser',GEWAESSER,'gewaesser','– Gewässer wählen –');
 }
 const sorted=()=>[...data].sort((a,b)=>(b.datum+b.zeit).localeCompare(a.datum+a.zeit));
 
 $('f').addEventListener('submit',ev=>{
   ev.preventDefault();
   const e={id:editId||Date.now().toString(36),datum:$('datum').value,zeit:$('zeit').value,fisch:$('fisch').value.trim(),
-    laenge:parseFloat($('laenge').value),gewicht:parseFloat($('gewicht').value)||null,koeder:$('koeder').value.trim(),
-    gewaesser:$('gewaesser').value.trim(),methode:$('methode').value,wetter:$('wetter').value,
+    laenge:parseFloat($('laenge').value),gewicht:parseFloat($('gewicht').value)||null,koeder:getSel('koeder'),
+    gewaesser:getSel('gewaesser'),methode:$('methode').value,wetter:$('wetter').value,
     wtemp:$('wtemp').value===''?null:parseFloat($('wtemp').value),notiz:$('notiz').value.trim(),frei:$('frei').checked};
-  if($('kein').checked){e.kein=true;e.fisch='';e.laenge=0;e.gewicht=null;e.frei=false}
+  if($('kein').checked){e.kein=true;e.fisch='';e.laenge=0;e.gewicht=null;e.frei=false}else if(!e.koeder){toast('Bitte einen Köder wählen oder eintragen');return}
   if(editId){data=data.map(x=>x.id===editId?e:x)}else{data.push(e)}
   save(); toast(editId?'Eintrag geändert':'Eintrag gespeichert'); resetForm(); render();
 });
 $('cancelBtn').onclick=resetForm;
 $('kein').addEventListener('change',setMode);
+['koeder','gewaesser'].forEach(id=>$(id).addEventListener('change',()=>{const n=$(id+'Neu');n.hidden=$(id).value!==NEU;if(!n.hidden)n.focus()}));
 
 function edit(id){
   const e=data.find(x=>x.id===id); if(!e)return; editId=id;
   $('datum').value=e.datum;$('zeit').value=e.zeit;$('fisch').value=e.fisch;$('laenge').value=e.laenge;
-  $('gewicht').value=e.gewicht??'';$('koeder').value=e.koeder;$('gewaesser').value=e.gewaesser||'';
+  $('gewicht').value=e.gewicht??'';setSel('koeder',e.koeder||'');setSel('gewaesser',e.gewaesser||'');
   $('methode').value=e.methode||'';$('wetter').value=e.wetter||'';$('wtemp').value=e.wtemp??'';
   $('notiz').value=e.notiz||'';$('frei').checked=!!e.frei;
   $('kein').checked=!!e.kein;$('cancelBtn').hidden=false;setMode();
@@ -184,40 +201,72 @@ function count(arr,fn){const m={};arr.forEach(e=>{const k=fn(e);if(k)m[k]=(m[k]|
 function bucket(t){const h=+t.slice(0,2);return h>=4&&h<10?'Morgen (4–10)':h>=10&&h<16?'Tag (10–16)':h>=16&&h<22?'Abend (16–22)':'Nacht (22–4)'}
 const MON=['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
-function renderStats(){
-  const el=$('stats');
-  if(!data.length){el.innerHTML='<div class="empty">Trag deinen ersten Fang oder Angeltag ein, dann erscheint hier die Auswertung.</div>';return}
+function buildStats(){
+  if(!data.length)return null;
   const c=data.filter(e=>!e.kein), n=c.length;
   const days=new Set(data.map(e=>e.datum)).size, ok=new Set(c.map(e=>e.datum)).size;
-  let h=`<div class="stats">
-    <div class="stat"><b>${days}</b><small>Angeltage</small></div>
-    <div class="stat"><b>${Math.round(ok/days*100)} %</b><small>mit Fang (${ok} von ${days})</small></div>
-    <div class="stat"><b>${days-ok}</b><small>ohne Fang</small></div>
-    <div class="stat"><b>${n}</b><small>Fänge</small></div>`;
+  const kpis=[[days,'Angeltage'],[Math.round(ok/days*100)+' %',`mit Fang (${ok} von ${days})`],[days-ok,'ohne Fang'],[n,'Fänge']];
+  const sec=[];
   if(n){
     const avg=c.reduce((s,e)=>s+e.laenge,0)/n, big=c.reduce((a,b)=>b.laenge>a.laenge?b:a);
-    h+=`<div class="stat"><b>${fmt(n/days)}</b><small>Fänge pro Angeltag</small></div>
-    <div class="stat"><b>${fmt(avg)} cm</b><small>Ø Länge</small></div>
-    <div class="stat"><b>${fmt(big.laenge)} cm</b><small>Größter: ${esc(big.fisch)}</small></div>`;
-  }
-  h+='</div><div class="cols">';
-  if(n){
+    kpis.push([fmt(n/days),'Fänge pro Angeltag'],[fmt(avg)+' cm','Ø Länge'],[fmt(big.laenge)+' cm','Größter: '+big.fisch]);
     const rec=count(c,e=>e.fisch).slice(0,8).map(r=>({l:r.l,v:r.v,txt:`${r.v}× · max ${fmt(Math.max(...c.filter(e=>e.fisch===r.l).map(e=>e.laenge)),0)}`}));
     const bt=count(c,e=>e.koeder).slice(0,8).map(r=>({...r,txt:`${r.v}×`}));
-    const tb=['Morgen (4–10)','Tag (10–16)','Abend (16–22)','Nacht (22–4)'].map(l=>({l,v:c.filter(e=>bucket(e.zeit)===l).length}));
-    h+=`<div><h3>Fische (Anzahl · größter in cm)</h3>${bars(rec,'')}</div>
-    <div><h3>Beste Köder</h3>${bars(bt,'')}</div>
-    <div><h3>Tageszeit der Fänge</h3>${bars(tb,'×')}</div>`;
+    const tb=['Morgen (4–10)','Tag (10–16)','Abend (16–22)','Nacht (22–4)'].map(l=>{const v=c.filter(e=>bucket(e.zeit)===l).length;return{l,v,txt:`${v}×`}});
+    sec.push({t:'Fische (Anzahl · größter in cm)',rows:rec},{t:'Beste Köder',rows:bt},{t:'Tageszeit der Fänge',rows:tb});
   }
   const mm={};
   data.forEach(e=>{const k=e.datum.slice(0,7);const o=mm[k]=mm[k]||{all:new Set(),ok:new Set()};o.all.add(e.datum);if(!e.kein)o.ok.add(e.datum)});
-  const mo=Object.keys(mm).sort().slice(-12).map(k=>({l:MON[+k.slice(5)-1]+' '+k.slice(2,4),v:mm[k].all.size,txt:`${mm[k].ok.size} von ${mm[k].all.size} Tagen`}));
-  h+=`<div><h3>Monate (Tage mit Fang)</h3>${bars(mo,'')}</div>`;
+  sec.push({t:'Monate (Tage mit Fang)',rows:Object.keys(mm).sort().slice(-12).map(k=>({l:MON[+k.slice(5)-1]+' '+k.slice(2,4),v:mm[k].all.size,txt:`${mm[k].ok.size} von ${mm[k].all.size} Tagen`}))});
   const split=key=>{const m={};data.forEach(e=>{const k=e[key];if(!k)return;const o=m[k]=m[k]||{k:0,b:0};if(e.kein)o.b++;else o.k++});
     return Object.entries(m).map(([l,o])=>({l,v:o.k+o.b,txt:`${o.k} Fänge · ${o.b}× ohne`})).sort((a,b)=>b.v-a.v).slice(0,6)};
-  [['Gewässer','gewaesser'],['Methode','methode'],['Wetter','wetter']].forEach(([t,k])=>{const r=split(k);if(r.length)h+=`<div><h3>${t}</h3>${bars(r,'')}</div>`});
-  el.innerHTML=h+'</div>';
+  [['Gewässer','gewaesser'],['Methode','methode'],['Wetter','wetter']].forEach(([t,k])=>{const r=split(k);if(r.length)sec.push({t,rows:r})});
+  return{kpis,sec};
 }
+function renderStats(){
+  const m=buildStats();
+  $('pdfBtn').disabled=!m;
+  if(!m){$('stats').innerHTML='<div class="empty">Trag deinen ersten Fang oder Angeltag ein, dann erscheint hier die Auswertung.</div>';return}
+  $('stats').innerHTML=`<div class="stats">${m.kpis.map(([v,l])=>`<div class="stat"><b>${esc(v)}</b><small>${esc(l)}</small></div>`).join('')}</div>
+  <div class="cols">${m.sec.map(x=>`<div><h3>${esc(x.t)}</h3>${bars(x.rows,'')}</div>`).join('')}</div>`;
+}
+async function exportPdf(){
+  const m=buildStats(); if(!m)return toast('Noch keine Daten für die Auswertung');
+  if(!window.jspdf)return toast('PDF-Bibliothek nicht geladen – Internetverbindung prüfen');
+  const t=x=>String(x).replace(/[–—]/g,'-');
+  const doc=new window.jspdf.jsPDF({unit:'mm',format:'a4'});
+  const M=16,R=194; let y=M;
+  const need=h=>{if(y+h>284){doc.addPage();y=M}};
+  doc.setFont('helvetica','bold');doc.setFontSize(20);doc.setTextColor(16,41,43);doc.text('Fangtagebuch - Auswertung',M,y+6);y+=12;
+  const ds=data.map(e=>e.datum).sort();
+  doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(90);
+  doc.text(`Zeitraum ${dDE(ds[0])} bis ${dDE(ds[ds.length-1])} · erstellt am ${dDE(today())}`,M,y);y+=9;
+  const cw=(R-M)/4;
+  m.kpis.forEach(([v,l],i)=>{
+    const x=M+(i%4)*cw, yy=y+Math.floor(i/4)*17;
+    doc.setFont('helvetica','bold');doc.setFontSize(15);doc.setTextColor(16,41,43);doc.text(t(v),x,yy+5);
+    doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(90);doc.text(doc.splitTextToSize(t(l),cw-3),x,yy+10);
+  });
+  y+=Math.ceil(m.kpis.length/4)*17+4;
+  m.sec.forEach(x=>{
+    need(18);
+    doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(16,41,43);doc.text(t(x.t),M,y);y+=6;
+    const max=Math.max(...x.rows.map(r=>r.v),1);
+    x.rows.forEach(r=>{
+      need(6);
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(30);
+      doc.text(doc.splitTextToSize(t(r.l),42)[0],M,y);
+      doc.setFillColor(156,195,198);doc.rect(M+46,y-3,Math.max(r.v/max*70,0.6),3.5,'F');
+      doc.setTextColor(90);doc.text(t(r.txt),M+46+72,y);
+      y+=5.5;
+    });
+    y+=5;
+  });
+  const pages=doc.getNumberOfPages();
+  for(let i=1;i<=pages;i++){doc.setPage(i);doc.setFontSize(8);doc.setTextColor(120);doc.text(`Seite ${i} von ${pages}`,R,290,{align:'right'})}
+  await download(`fangtagebuch-auswertung-${today()}.pdf`,doc.output('blob'),'application/pdf');
+}
+$('pdfBtn').onclick=exportPdf;
 function renderList(){
   const l=sorted();
   $('list').innerHTML=l.length?l.map(e=>{
@@ -234,7 +283,15 @@ $('list').addEventListener('click',ev=>{
 });
 function render(){opts();renderStats();renderList()}
 
-function download(name,text,type){
+async function download(name,text,type){
+  if(typeof claude!=='undefined'&&claude.use){
+    try{
+      const d=await claude.use('downloads');
+      if(!d){toast('Speichern ist hier nicht verfügbar');return}
+      await d.save({filename:name,data:text});toast('Datei gespeichert');
+    }catch(e){if(!e||e.code!=='declined')toast('Speichern nicht möglich')}
+    return;
+  }
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 $('expJson').onclick=()=>{if(!data.length)return toast('Noch nichts zu sichern');download(`fangtagebuch-${today()}.json`,JSON.stringify(data,null,1),'application/json')};
