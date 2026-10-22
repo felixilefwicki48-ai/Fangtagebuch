@@ -335,7 +335,7 @@ function buildStats(){
   data.forEach(e=>{const k=e.datum.slice(0,7);const o=mm[k]=mm[k]||{all:new Set(),ok:new Set()};o.all.add(e.datum);if(!e.kein)o.ok.add(e.datum)});
   sec.push({t:'Monate (Tage mit Fang)',rows:Object.keys(mm).sort().slice(-12).map(k=>({l:MON[+k.slice(5)-1]+' '+k.slice(2,4),v:mm[k].all.size,txt:`${mm[k].ok.size} von ${mm[k].all.size} Tagen`}))});
   const split=key=>{const m={};data.forEach(e=>(typeof key==='function'?key(e):wl(e[key])).forEach(k=>{const o=m[k]=m[k]||{k:0,b:0};if(e.kein)o.b++;else o.k++}));
-    return Object.entries(m).map(([l,o])=>({l,v:o.k+o.b,txt:`${o.k} Fänge · ${o.b}× ohne`})).sort((a,b)=>b.v-a.v).slice(0,6)};
+    return Object.entries(m).map(([l,o])=>({l,v:o.k+o.b,txt:`${o.k} Fänge · ${o.b}× ohne`})).sort((a,b)=>b.v-a.v)};
   [['Gewässer','gewaesser'],['Methode','methode'],['Wetter','wetter']].forEach(([t,k])=>{const r=split(k);if(r.length)sec.push({t,rows:r})});
   const trend=e=>e.wx&&e.wx.dp!=null?[e.wx.dp<=-1?'Fallend':e.wx.dp>=1?'Steigend':'Gleichbleibend']:[];
   const wdir=e=>e.wx&&e.wx.wd!=null?[compass(e.wx.wd,8)]:[];
