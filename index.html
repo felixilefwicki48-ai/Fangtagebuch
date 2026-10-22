@@ -207,6 +207,9 @@ async function loadWx(force){
   try{const r=await fetchWx(ort,d,z);if(tok!==wxTok)return false;wx=r;wxKey=key;renderWx();return true}
   catch(e){if(tok===wxTok){wx=null;wxFail=key;renderWx('fehler')}return false}
 }
+async function attachWxLater(id,o,datum,zeit){
+  try{const r=await fetchWx(o,datum,zeit);const e=data.find(x=>x.id===id);if(e&&!e.wx&&e.datum===datum&&e.zeit===zeit){e.wx=r;e.ort={...o};save();render()}}catch(x){}
+}
 function scheduleWx(){clearTimeout(wxTimer);wxTimer=setTimeout(()=>loadWx(),600)}
 async function ensureWx(){if(!$('datum').value||!$('zeit').value)return;if(!wx||wxKeyNow()!==wxKey)await loadWx()}
 function setOrt(o){ort=o;wx=null;wxKey='';wxFail='';$('ortPick').hidden=true;renderWx();loadWx()}
@@ -272,14 +275,14 @@ const sorted=()=>[...data].sort((a,b)=>(b.datum+b.zeit).localeCompare(a.datum+a.
 $('f').addEventListener('submit',async ev=>{
   ev.preventDefault();
   FIELDS.forEach(k=>addChip(k));
-  $('saveBtn').disabled=true;await ensureWx();$('saveBtn').disabled=false;
   const e={id:editId||Date.now().toString(36),datum:$('datum').value,zeit:$('zeit').value,fisch:$('fisch').value.trim(),
     laenge:parseFloat($('laenge').value),gewicht:parseFloat($('gewicht').value)||null,koeder:getChips('koeder'),
     gewaesser:getChips('gewaesser'),methode:getChips('methode'),wetter:getChips('wetter'),
     wtemp:$('wtemp').value===''?null:parseFloat($('wtemp').value),notiz:$('notiz').value.trim(),frei:$('frei').checked,wx:wx||null,ort:wx?{...ort}:null};
   if($('kein').checked){e.kein=true;e.fisch='';e.laenge=0;e.gewicht=null;e.frei=false}else if(!e.koeder.length){toast('Bitte einen Köder wählen oder eintragen');return}
   if(editId){data=data.map(x=>x.id===editId?e:x)}else{data.push(e)}
-  save(); toast(editId?'Eintrag geändert':'Eintrag gespeichert'); resetForm(); render();
+  const o={...ort}; save(); toast(editId?'Eintrag geändert':'Eintrag gespeichert'); resetForm(); render();
+  if(!e.wx&&e.datum&&e.zeit)attachWxLater(e.id,o,e.datum,e.zeit);
 });
 $('cancelBtn').onclick=resetForm;
 ['datum','zeit'].forEach(id=>$(id).addEventListener('input',()=>{dtTouched=true;scheduleWx()}));
