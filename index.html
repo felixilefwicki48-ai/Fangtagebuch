@@ -235,7 +235,7 @@ function dDE(s){const[y,m,d]=s.split('-');return `${d}.${m}.${y}`}
 function setMode(){
   const k=$('kein').checked;
   document.querySelectorAll('.c').forEach(x=>x.hidden=k);
-  ['fisch','laenge'].forEach(id=>$(id).required=!k);
+  ['fisch','laenge'].forEach(id=>{$(id).required=!k;$(id).disabled=k});
   $('formTitle').textContent=editId?'Eintrag bearbeiten':(k?'Angeltag ohne Fang':'Neuer Fang');
   $('saveBtn').textContent=editId?'Änderung speichern':(k?'Tag speichern':'Fang speichern');
 }
@@ -294,7 +294,7 @@ FIELDS.forEach(k=>$(k+'Neu').addEventListener('keydown',ev=>{if(ev.key==='Enter'
 function setChips_(e){FIELDS.forEach(k=>renderChips(k,wl(e[k])))}
 function edit(id){
   const e=data.find(x=>x.id===id); if(!e)return; editId=id;
-  $('datum').value=e.datum;$('zeit').value=e.zeit;$('fisch').value=e.fisch;$('laenge').value=e.laenge;
+  $('datum').value=e.datum;$('zeit').value=e.zeit;$('fisch').value=e.fisch;$('laenge').value=e.kein?'':e.laenge;
   $('gewicht').value=e.gewicht??'';setChips_(e);ort=e.ort?{...e.ort}:{...ROSTOCK};wx=e.wx||null;wxKey=wx?wxKeyNow():'';wxFail='';renderWx();if(!wx)scheduleWx();
   $('wtemp').value=e.wtemp??'';
   $('notiz').value=e.notiz||'';$('frei').checked=!!e.frei;
