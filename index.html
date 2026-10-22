@@ -125,7 +125,8 @@ button.main{background:var(--water);border-color:var(--water);color:#fff;font-we
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 const KEY='fangtagebuch.v1';
-const BASE={koeder:['Chatterbait','Gummi','Wobbler','Wurm','Brot','Made'],gewaesser:['Barsch-Spot','alter Fähranleger','maroder Steg','neuer Fähranleger'],methode:[],wetter:[]};
+const BASE={koeder:[],gewaesser:[],methode:[],wetter:[]};
+let dtTouched=false;
 const AUSBLENDEN={gewaesser:['kanal']};
 const FIELDS=Object.keys(BASE);
 const wl=v=>Array.isArray(v)?v:(v?[v]:[]);
@@ -150,7 +151,7 @@ function setMode(){
 }
 function resetForm(){
   $('f').reset(); editId=null;
-  $('datum').value=today(); $('zeit').value=now(); $('frei').checked=true;
+  $('datum').value=today(); $('zeit').value=now(); dtTouched=false; $('frei').checked=true;
   $('cancelBtn').hidden=true; setMode();
   const last=sorted()[0]; FIELDS.forEach(k=>{$(k+'Neu').value='';renderChips(k,k==='gewaesser'&&last?wl(last.gewaesser):[])});
 }
@@ -190,6 +191,11 @@ $('f').addEventListener('submit',ev=>{
   save(); toast(editId?'Eintrag geändert':'Eintrag gespeichert'); resetForm(); render();
 });
 $('cancelBtn').onclick=resetForm;
+['datum','zeit'].forEach(id=>$(id).addEventListener('input',()=>{dtTouched=true}));
+function stampNow(){if(dtTouched||editId)return;$('datum').value=today();$('zeit').value=now()}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)stampNow()});
+window.addEventListener('focus',stampNow);
+setInterval(stampNow,30000);
 $('kein').addEventListener('change',setMode);
 document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>addChip(b.dataset.add));
 FIELDS.forEach(k=>$(k+'Neu').addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();addChip(k)}}));
