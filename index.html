@@ -80,7 +80,7 @@ footer a{color:var(--water)}
 <main>
   <section>
     <h2 id="formTitle">Neuer Fang</h2>
-    <form id="f" autocomplete="off">
+    <form id="f" autocomplete="off" novalidate>
       <div class="grid">
         <label class="chk full"><input type="checkbox" id="kein"> Kein Fang (Schneidertag)</label>
         <label>Datum<input type="date" id="datum" required></label>
@@ -274,7 +274,13 @@ const sorted=()=>[...data].sort((a,b)=>(b.datum+b.zeit).localeCompare(a.datum+a.
 
 $('f').addEventListener('submit',async ev=>{
   ev.preventDefault();
+  try{
   FIELDS.forEach(k=>addChip(k));
+  if(!$('datum').value||!$('zeit').value){toast('Bitte Datum und Uhrzeit angeben');return}
+  if(!$('kein').checked){
+    if(!$('fisch').value.trim()){toast('Bitte einen Fisch eintragen');return}
+    if(!(parseFloat(String($('laenge').value).replace(',','.'))>0)){toast('Bitte eine Länge eintragen');return}
+  }
   const e={id:editId||Date.now().toString(36),datum:$('datum').value,zeit:$('zeit').value,fisch:$('fisch').value.trim(),
     laenge:parseFloat($('laenge').value),gewicht:parseFloat($('gewicht').value)||null,koeder:getChips('koeder'),
     gewaesser:getChips('gewaesser'),methode:getChips('methode'),wetter:getChips('wetter'),
@@ -283,6 +289,7 @@ $('f').addEventListener('submit',async ev=>{
   if(editId){data=data.map(x=>x.id===editId?e:x)}else{data.push(e)}
   const o={...ort}; save(); toast(editId?'Eintrag geändert':'Eintrag gespeichert'); resetForm(); render();
   if(!e.wx&&e.datum&&e.zeit)attachWxLater(e.id,o,e.datum,e.zeit);
+  }catch(err){toast('Fehler beim Speichern: '+(err&&err.message||err))}
 });
 $('cancelBtn').onclick=resetForm;
 ['datum','zeit'].forEach(id=>$(id).addEventListener('input',()=>{dtTouched=true;scheduleWx()}));
@@ -442,6 +449,8 @@ async function wxBulk(){
   save();render();toast(`${ok} von ${todo.length} Einträgen ergänzt`);
 }
 $('wxBulk').onclick=wxBulk;
+window.addEventListener('error',ev=>toast('Fehler: '+ev.message));
+window.addEventListener('unhandledrejection',ev=>toast('Fehler: '+((ev.reason&&ev.reason.message)||ev.reason)));
 function renderList(){
   const l=sorted();
   $('listPdfBtn').disabled=!l.length;
