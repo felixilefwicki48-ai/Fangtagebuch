@@ -63,6 +63,13 @@ button.main{background:var(--water);border-color:var(--water);color:#fff;font-we
 #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:6px;opacity:0;pointer-events:none;transition:opacity .2s}
 #toast.on{opacity:1}
 @media(prefers-reduced-motion:reduce){#toast{transition:none}}
+.wx{border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--bg)}
+.wxhead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.wxhead button{padding:4px 10px;font-size:.85rem}
+.wxout{margin-top:6px;font-size:.92rem}
+.lnk{border:0;background:none;color:var(--water);padding:2px 4px;text-decoration:underline}
+footer{max-width:1100px;margin:0 auto;padding:0 20px 30px;color:var(--mute);font-size:.8rem}
+footer a{color:var(--water)}
 </style>
 </head>
 <body>
@@ -89,6 +96,10 @@ button.main{background:var(--water);border-color:var(--water);color:#fff;font-we
           <div class="add"><input id="methodeNeu" placeholder="Neue Methode"><button type="button" data-add="methode">Hinzufügen</button></div></div>
         <div class="full"><span class="lbl">Wetter (Mehrfachauswahl)</span><div class="chips" id="wetter"></div>
           <div class="add"><input id="wetterNeu" placeholder="Neues Wetter"><button type="button" data-add="wetter">Hinzufügen</button></div></div>
+        <div class="full wx"><div class="wxhead"><span class="lbl">Wetterdaten (automatisch, Open-Meteo)</span><button type="button" id="wxReload">Neu laden</button></div>
+          <div style="margin-top:4px">Ort: <b id="ortName">Rostock</b> <button type="button" class="lnk" id="ortChange">ändern</button></div>
+          <div id="ortPick" hidden><div class="add"><input id="ortSuche" placeholder="Ort suchen, z. B. Warnemünde"><button type="button" id="ortGo">Suchen</button></div><div class="chips" id="ortRes"></div><button type="button" class="lnk" id="ortReset">Zurück zu Rostock</button></div>
+          <div class="wxout" id="wxOut">Noch keine Wetterdaten.</div></div>
         <label>Wassertemp. (°C)<input type="number" id="wtemp" step="0.5"></label>
         <label class="full">Notiz<textarea id="notiz" rows="2" placeholder="Tiefe, Stelle, Besonderheiten …"></textarea></label>
         <label class="chk full c"><input type="checkbox" id="frei" checked> Zurückgesetzt</label>
@@ -105,6 +116,7 @@ button.main{background:var(--water);border-color:var(--water);color:#fff;font-we
       <button type="button" id="expJson">Sichern (JSON)</button>
       <button type="button" id="expCsv">CSV</button>
       <button type="button" id="impBtn">Laden</button>
+      <button type="button" id="wxBulk">Wetter nachladen</button>
       <input type="file" id="impFile" accept=".json,application/json" hidden>
     </div>
   </section>
@@ -120,6 +132,7 @@ button.main{background:var(--water);border-color:var(--water);color:#fff;font-we
     </section>
   </div>
 </main>
+<footer>Wetterdaten: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0)</footer>
 <div id="toast" role="status"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -130,6 +143,83 @@ let dtTouched=false;
 const AUSBLENDEN={};
 const FIELDS=Object.keys(BASE);
 const wl=v=>Array.isArray(v)?v:(v?[v]:[]);
+// WX-START
+const ROSTOCK={name:'Rostock',lat:54.0887,lon:12.1405};
+let ort={...ROSTOCK},wx=null,wxKey='',wxFail='',wxTok=0,wxTimer=null;
+const KOMP=['N','NNO','NO','ONO','O','OSO','SO','SSO','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+const compass=(d,n=16)=>{const i=Math.round(d/(360/n))%n;return KOMP[i*(16/n)]};
+const WMO={0:'Klar',1:'Überwiegend klar',2:'Teils bewölkt',3:'Bedeckt',45:'Nebel',48:'Reifnebel',51:'Leichter Nieselregen',53:'Nieselregen',55:'Starker Nieselregen',56:'Gefrierender Nieselregen',57:'Gefrierender Nieselregen',61:'Leichter Regen',63:'Regen',65:'Starker Regen',66:'Gefrierender Regen',67:'Gefrierender Regen',71:'Leichter Schneefall',73:'Schneefall',75:'Starker Schneefall',77:'Schneegriesel',80:'Leichte Regenschauer',81:'Regenschauer',82:'Starke Regenschauer',85:'Schneeschauer',86:'Starke Schneeschauer',95:'Gewitter',96:'Gewitter mit Hagel',99:'Gewitter mit Hagel'};
+const wmo=c=>WMO[c]||('Code '+c);
+const fmtP=n=>n.toLocaleString('de-DE',{maximumFractionDigits:1,useGrouping:false});
+function dpTxt(dp){return (dp>0?'+':dp<0?'−':'±')+fmt(Math.abs(dp))+' hPa in 3 h'+(dp<=-1?', fallend':dp>=1?', steigend':', gleichbleibend')}
+function wxText(w){
+  if(!w)return '';
+  const p=[];
+  if(w.t!=null)p.push(fmt(w.t)+' °C');
+  if(w.w!=null)p.push('Wind '+fmt(w.w,0)+' km/h'+(w.wd!=null?' aus '+compass(w.wd)+' ('+Math.round(w.wd)+'°)':''));
+  if(w.code!=null)p.push(wmo(w.code));
+  if(w.p!=null)p.push(fmtP(w.p)+' hPa'+(w.dp!=null?' ('+dpTxt(w.dp)+')':''));
+  return p.join(' · ');
+}
+const wxCols=e=>{const w=e.wx||{};return[e.ort?e.ort.name:'',w.t,w.w,w.wd,w.code!=null?wmo(w.code):'',w.p,w.dp]};
+function hourKey(datum,zeit,off=0){const d=new Date(`${datum}T${zeit||'12:00'}:00Z`);d.setUTCMinutes(d.getUTCMinutes()+30+off*60);return d.toISOString().slice(0,13)+':00'}
+function addDays(datum,n){const d=new Date(datum+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)}
+const daysAgo=datum=>Math.round((Date.parse(today()+'T00:00:00Z')-Date.parse(datum+'T00:00:00Z'))/864e5);
+async function getJson(url){
+  const c=new AbortController(),t=setTimeout(()=>c.abort(),9000);
+  try{const r=await fetch(url,{signal:c.signal});if(!r.ok)throw new Error('HTTP '+r.status);return await r.json()}
+  finally{clearTimeout(t)}
+}
+async function fetchWx(o,datum,zeit){
+  const V='temperature_2m,wind_speed_10m,wind_direction_10m,weather_code,pressure_msl';
+  const base=`latitude=${o.lat}&longitude=${o.lon}&hourly=${V}&timezone=auto&wind_speed_unit=kmh`;
+  const ago=daysAgo(datum);
+  const fc=`https://api.open-meteo.com/v1/forecast?${base}&`+(ago>=0?`past_days=${Math.min(92,ago+2)}&forecast_days=2`:`forecast_days=${Math.min(16,-ago+2)}`);
+  const ar=`https://archive-api.open-meteo.com/v1/archive?${base}&start_date=${addDays(datum,-1)}&end_date=${datum}`;
+  const urls=ago>7?[ar,fc]:[fc];
+  const r1=(v,d=1)=>v==null?null:Math.round(v*10**d)/10**d;
+  let lastErr=null;
+  for(const url of urls){
+    try{
+      const h=(await getJson(url)).hourly;
+      const i=h.time.indexOf(hourKey(datum,zeit));
+      if(i<0||(h.temperature_2m[i]==null&&h.pressure_msl[i]==null))continue;
+      const k3=h.time.indexOf(hourKey(datum,zeit,-3));
+      const p=h.pressure_msl[i],p3=k3>=0?h.pressure_msl[k3]:null;
+      return{t:r1(h.temperature_2m[i]),w:r1(h.wind_speed_10m[i],0),wd:r1(h.wind_direction_10m[i],0),code:h.weather_code?h.weather_code[i]:null,p:r1(p),dp:(p!=null&&p3!=null)?r1(p-p3):null,src:url===ar?'archiv':'modell'};
+    }catch(e){lastErr=e}
+  }
+  throw lastErr||new Error('keine Daten');
+}
+function wxKeyNow(){return hourKey($('datum').value,$('zeit').value)+'|'+ort.lat+','+ort.lon}
+function renderWx(st){
+  $('ortName').textContent=ort.name;
+  const o=$('wxOut');
+  if(st==='lädt')o.textContent='Wetterdaten werden geladen …';
+  else if(st==='fehler')o.textContent='Wetterdaten nicht verfügbar (keine Verbindung oder Zeitpunkt nicht abrufbar). Speichern geht trotzdem.';
+  else o.textContent=wx?wxText(wx):'Noch keine Wetterdaten.';
+}
+async function loadWx(force){
+  const d=$('datum').value,z=$('zeit').value; if(!d||!z)return false;
+  const key=wxKeyNow();
+  if(!force){if(wx&&key===wxKey)return true;if(key===wxFail)return false}
+  const tok=++wxTok; wx=null; wxKey=''; wxFail=''; renderWx('lädt');
+  try{const r=await fetchWx(ort,d,z);if(tok!==wxTok)return false;wx=r;wxKey=key;renderWx();return true}
+  catch(e){if(tok===wxTok){wx=null;wxFail=key;renderWx('fehler')}return false}
+}
+function scheduleWx(){clearTimeout(wxTimer);wxTimer=setTimeout(()=>loadWx(),600)}
+async function ensureWx(){if(!$('datum').value||!$('zeit').value)return;if(!wx||wxKeyNow()!==wxKey)await loadWx()}
+function setOrt(o){ort=o;wx=null;wxKey='';wxFail='';$('ortPick').hidden=true;renderWx();loadWx()}
+async function ortSuchen(){
+  const q=$('ortSuche').value.trim(); if(q.length<2)return;
+  const res=$('ortRes'); res.innerHTML='<span class="hint">Suche …</span>';
+  try{
+    const r=(await getJson(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=de&format=json`)).results||[];
+    res._r=r;
+    res.innerHTML=r.length?r.map((x,i)=>`<button type="button" class="chip" data-o="${i}">${esc(x.name)}${x.admin1?', '+esc(x.admin1):''}${x.country_code?' ('+esc(x.country_code)+')':''}</button>`).join(''):'<span class="hint">Nichts gefunden</span>';
+  }catch(e){res.innerHTML='<span class="hint">Suche nicht möglich</span>'}
+}
+// WX-END
 const $=id=>document.getElementById(id);
 let data=load(), editId=null;
 
@@ -152,7 +242,7 @@ function setMode(){
 function resetForm(){
   $('f').reset(); editId=null;
   $('datum').value=today(); $('zeit').value=now(); dtTouched=false; $('frei').checked=true;
-  $('cancelBtn').hidden=true; setMode();
+  $('cancelBtn').hidden=true; setMode(); ort={...ROSTOCK}; wx=null; wxKey=''; wxFail=''; $('ortPick').hidden=true; renderWx(); scheduleWx();
   const last=sorted()[0]; FIELDS.forEach(k=>{$(k+'Neu').value='';renderChips(k,k==='gewaesser'&&last?wl(last.gewaesser):[])});
 }
 const uniqCI=arr=>{const seen=new Set();return arr.filter(v=>{const k=v.toLowerCase();if(seen.has(k))return false;seen.add(k);return true})};
@@ -179,20 +269,21 @@ function opts(){
 }
 const sorted=()=>[...data].sort((a,b)=>(b.datum+b.zeit).localeCompare(a.datum+a.zeit));
 
-$('f').addEventListener('submit',ev=>{
+$('f').addEventListener('submit',async ev=>{
   ev.preventDefault();
   FIELDS.forEach(k=>addChip(k));
+  $('saveBtn').disabled=true;await ensureWx();$('saveBtn').disabled=false;
   const e={id:editId||Date.now().toString(36),datum:$('datum').value,zeit:$('zeit').value,fisch:$('fisch').value.trim(),
     laenge:parseFloat($('laenge').value),gewicht:parseFloat($('gewicht').value)||null,koeder:getChips('koeder'),
     gewaesser:getChips('gewaesser'),methode:getChips('methode'),wetter:getChips('wetter'),
-    wtemp:$('wtemp').value===''?null:parseFloat($('wtemp').value),notiz:$('notiz').value.trim(),frei:$('frei').checked};
+    wtemp:$('wtemp').value===''?null:parseFloat($('wtemp').value),notiz:$('notiz').value.trim(),frei:$('frei').checked,wx:wx||null,ort:wx?{...ort}:null};
   if($('kein').checked){e.kein=true;e.fisch='';e.laenge=0;e.gewicht=null;e.frei=false}else if(!e.koeder.length){toast('Bitte einen Köder wählen oder eintragen');return}
   if(editId){data=data.map(x=>x.id===editId?e:x)}else{data.push(e)}
   save(); toast(editId?'Eintrag geändert':'Eintrag gespeichert'); resetForm(); render();
 });
 $('cancelBtn').onclick=resetForm;
-['datum','zeit'].forEach(id=>$(id).addEventListener('input',()=>{dtTouched=true}));
-function stampNow(){if(dtTouched||editId)return;$('datum').value=today();$('zeit').value=now()}
+['datum','zeit'].forEach(id=>$(id).addEventListener('input',()=>{dtTouched=true;scheduleWx()}));
+function stampNow(){if(dtTouched||editId)return;$('datum').value=today();$('zeit').value=now();scheduleWx()}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)stampNow()});
 window.addEventListener('focus',stampNow);
 setInterval(stampNow,30000);
@@ -204,7 +295,7 @@ function setChips_(e){FIELDS.forEach(k=>renderChips(k,wl(e[k])))}
 function edit(id){
   const e=data.find(x=>x.id===id); if(!e)return; editId=id;
   $('datum').value=e.datum;$('zeit').value=e.zeit;$('fisch').value=e.fisch;$('laenge').value=e.laenge;
-  $('gewicht').value=e.gewicht??'';setChips_(e);
+  $('gewicht').value=e.gewicht??'';setChips_(e);ort=e.ort?{...e.ort}:{...ROSTOCK};wx=e.wx||null;wxKey=wx?wxKeyNow():'';wxFail='';renderWx();if(!wx)scheduleWx();
   $('wtemp').value=e.wtemp??'';
   $('notiz').value=e.notiz||'';$('frei').checked=!!e.frei;
   $('kein').checked=!!e.kein;$('cancelBtn').hidden=false;setMode();
@@ -243,9 +334,12 @@ function buildStats(){
   const mm={};
   data.forEach(e=>{const k=e.datum.slice(0,7);const o=mm[k]=mm[k]||{all:new Set(),ok:new Set()};o.all.add(e.datum);if(!e.kein)o.ok.add(e.datum)});
   sec.push({t:'Monate (Tage mit Fang)',rows:Object.keys(mm).sort().slice(-12).map(k=>({l:MON[+k.slice(5)-1]+' '+k.slice(2,4),v:mm[k].all.size,txt:`${mm[k].ok.size} von ${mm[k].all.size} Tagen`}))});
-  const split=key=>{const m={};data.forEach(e=>wl(e[key]).forEach(k=>{const o=m[k]=m[k]||{k:0,b:0};if(e.kein)o.b++;else o.k++}));
+  const split=key=>{const m={};data.forEach(e=>(typeof key==='function'?key(e):wl(e[key])).forEach(k=>{const o=m[k]=m[k]||{k:0,b:0};if(e.kein)o.b++;else o.k++}));
     return Object.entries(m).map(([l,o])=>({l,v:o.k+o.b,txt:`${o.k} Fänge · ${o.b}× ohne`})).sort((a,b)=>b.v-a.v).slice(0,6)};
   [['Gewässer','gewaesser'],['Methode','methode'],['Wetter','wetter']].forEach(([t,k])=>{const r=split(k);if(r.length)sec.push({t,rows:r})});
+  const trend=e=>e.wx&&e.wx.dp!=null?[e.wx.dp<=-1?'Fallend':e.wx.dp>=1?'Steigend':'Gleichbleibend']:[];
+  const wdir=e=>e.wx&&e.wx.wd!=null?[compass(e.wx.wd,8)]:[];
+  [['Luftdruck-Trend (3 Std. vorher)',trend],['Windrichtung',wdir]].forEach(([t,f])=>{const r=split(f);if(r.length)sec.push({t,rows:r})});
   return{kpis,sec};
 }
 function renderStats(){
@@ -295,7 +389,7 @@ $('pdfBtn').onclick=exportPdf;
 async function exportListPdf(){
   const l=sorted(); if(!l.length)return toast('Noch keine Einträge');
   if(!window.jspdf)return toast('PDF-Bibliothek nicht geladen – Internetverbindung prüfen');
-  const t=x=>String(x??'').replace(/[–—]/g,'-');
+  const t=x=>String(x??'').replace(/[–—−]/g,'-');
   const doc=new window.jspdf.jsPDF({unit:'mm',format:'a4',orientation:'landscape'});
   const M=14,R=283,cols=[['Datum',14,22],['Zeit',36,12],['Fisch',48,30],['Länge',78,16],['Köder',94,32],['Gewässer',126,36],['Details',162,R-162]];
   let y=M;
@@ -310,7 +404,7 @@ async function exportListPdf(){
   doc.text(`${l.length} Einträge · ${nf} Fänge · ${l.length-nf} Tage ohne Fang · erstellt am ${dDE(today())}`,M,y);y+=8;
   head();
   l.forEach(e=>{
-    const det=[wl(e.methode).join(', '),wl(e.wetter).join(', '),e.wtemp!=null?e.wtemp+' °C Wasser':'',e.kein?'':(e.gewicht?fmt(e.gewicht,2)+' kg':''),e.kein?'':(e.frei?'zurückgesetzt':'entnommen'),e.notiz].filter(Boolean).join(' · ');
+    const det=[wxText(e.wx),wl(e.methode).join(', '),wl(e.wetter).join(', '),e.wtemp!=null?e.wtemp+' °C Wasser':'',e.kein?'':(e.gewicht?fmt(e.gewicht,2)+' kg':''),e.kein?'':(e.frei?'zurückgesetzt':'entnommen'),e.notiz].filter(Boolean).join(' · ');
     const cells=[dDE(e.datum),e.zeit,e.kein?'Kein Fang':e.fisch,e.kein?'-':fmt(e.laenge)+' cm',wl(e.koeder).join(', '),wl(e.gewaesser).join(', '),det];
     doc.setFont('helvetica','normal');doc.setFontSize(8.5);
     const lines=cells.map((c,i)=>doc.splitTextToSize(t(c),cols[i][2]-2));
@@ -326,6 +420,25 @@ async function exportListPdf(){
   await download(`fangtagebuch-faenge-${today()}.pdf`,doc.output('blob'),'application/pdf');
 }
 $('listPdfBtn').onclick=exportListPdf;
+$('wxReload').onclick=()=>loadWx(true);
+$('ortChange').onclick=()=>{const b=$('ortPick');b.hidden=!b.hidden;if(!b.hidden)$('ortSuche').focus()};
+$('ortGo').onclick=ortSuchen;
+$('ortSuche').addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();ortSuchen()}});
+$('ortReset').onclick=()=>setOrt({...ROSTOCK});
+$('ortRes').addEventListener('click',ev=>{const b=ev.target.closest('[data-o]');if(!b)return;const x=$('ortRes')._r[b.dataset.o];if(x)setOrt({name:x.name,lat:x.latitude,lon:x.longitude})});
+async function wxBulk(){
+  const todo=data.filter(e=>!e.wx&&e.datum&&e.zeit);
+  if(!todo.length)return toast('Alle Einträge haben schon Wetterdaten');
+  if(!confirm(`Wetterdaten für ${todo.length} Einträge nachladen (Ort: Rostock)?`))return;
+  let ok=0;
+  for(const e of todo){
+    try{const o=e.ort||ROSTOCK;e.wx=await fetchWx(o,e.datum,e.zeit);e.ort={...o};ok++}catch(x){}
+    toast(`Wetter nachladen … ${ok}/${todo.length}`);
+    await new Promise(r=>setTimeout(r,250));
+  }
+  save();render();toast(`${ok} von ${todo.length} Einträgen ergänzt`);
+}
+$('wxBulk').onclick=wxBulk;
 function renderList(){
   const l=sorted();
   $('listPdfBtn').disabled=!l.length;
@@ -333,7 +446,7 @@ function renderList(){
     const meta=[dDE(e.datum)+', '+e.zeit+' Uhr',wl(e.koeder).length?(e.kein?'Versucht mit: ':'Köder: ')+wl(e.koeder).join(', '):'',wl(e.gewaesser).join(', '),wl(e.methode).join(', '),wl(e.wetter).join(', '),
       e.wtemp!=null?e.wtemp+' °C Wasser':'',e.kein?'':(e.gewicht?fmt(e.gewicht,2)+' kg':''),e.kein?'':(e.frei?'zurückgesetzt':'entnommen')].filter(Boolean).map(esc).join(' · ');
     return `<div class="entry"><strong>${e.kein?'Kein Fang':esc(e.fisch)}</strong><span class="len">${e.kein?'–':fmt(e.laenge)+' cm'}</span>
-      <div class="meta">${meta}${e.notiz?'<br>'+esc(e.notiz):''}</div>
+      <div class="meta">${meta}${e.wx?'<br>'+esc(wxText(e.wx))+(e.ort?' · '+esc(e.ort.name):''):''}${e.notiz?'<br>'+esc(e.notiz):''}</div>
       <div class="act"><button data-e="${e.id}">Bearbeiten</button><button data-d="${e.id}">Löschen</button></div></div>`}).join('')
     :'<div class="empty">Noch keine Fänge eingetragen.</div>';
 }
@@ -357,9 +470,9 @@ async function download(name,text,type){
 $('expJson').onclick=()=>{if(!data.length)return toast('Noch nichts zu sichern');download(`fangtagebuch-${today()}.json`,JSON.stringify(data,null,1),'application/json')};
 $('expCsv').onclick=()=>{
   if(!data.length)return toast('Noch nichts zu exportieren');
-  const h=['Datum','Uhrzeit','Fisch','Länge cm','Gewicht kg','Köder','Gewässer','Methode','Wetter','Wassertemp °C','Zurückgesetzt','Kein Fang','Notiz'];
+  const h=['Datum','Uhrzeit','Fisch','Länge cm','Gewicht kg','Köder','Gewässer','Methode','Wetter','Wassertemp °C','Zurückgesetzt','Kein Fang','Notiz','Ort','Lufttemp °C','Wind km/h','Windrichtung °','Wetterlage','Luftdruck hPa','Druckänderung 3h hPa'];
   const q=v=>`"${String(v??'').replace(/"/g,'""')}"`;
-  const rows=sorted().map(e=>[e.datum,e.zeit,e.fisch,e.laenge,e.gewicht,wl(e.koeder).join(', '),wl(e.gewaesser).join(', '),wl(e.methode).join(', '),wl(e.wetter).join(', '),e.wtemp,e.kein?'':(e.frei?'ja':'nein'),e.kein?'ja':'nein',e.notiz].map(q).join(';'));
+  const rows=sorted().map(e=>[e.datum,e.zeit,e.fisch,e.laenge,e.gewicht,wl(e.koeder).join(', '),wl(e.gewaesser).join(', '),wl(e.methode).join(', '),wl(e.wetter).join(', '),e.wtemp,e.kein?'':(e.frei?'ja':'nein'),e.kein?'ja':'nein',e.notiz,...wxCols(e)].map(q).join(';'));
   download(`fangtagebuch-${today()}.csv`,'\uFEFF'+[h.map(q).join(';'),...rows].join('\n'),'text/csv');
 };
 $('impBtn').onclick=()=>$('impFile').click();
